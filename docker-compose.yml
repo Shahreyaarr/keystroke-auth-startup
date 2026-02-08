@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: keystroke-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: keystroke_auth
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - keystroke-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: keystroke-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - keystroke-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: keystroke-backend
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/keystroke_auth
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=your-super-secret-key-change-in-production-123456789
+      - DEBUG=false
+      - ENVIRONMENT=production
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - keystroke-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: keystroke-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - keystroke-network
+
+  landing:
+    build:
+      context: ./landing-page
+      dockerfile: Dockerfile
+    container_name: keystroke-landing
+    ports:
+      - "8080:80"
+    networks:
+      - keystroke-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  keystroke-network:
+    driver: bridge
